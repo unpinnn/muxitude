@@ -25,19 +25,38 @@ function failUnsupported() {
   process.exit(0);
 }
 
-function download(url, destination) {
+function download(url, destination, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destination);
-    https
-      .get(url, (res) => {
-        if (res.statusCode !== 200) {
-          reject(new Error(`Download failed (${res.statusCode}) for ${url}`));
+    const req = https.get(
+      url,
+      { headers: { "user-agent": "muxitude-npm-installer" } },
+      (res) => {
+        const code = res.statusCode || 0;
+
+        if (code >= 300 && code < 400 && res.headers.location) {
+          file.close(() => fs.unlink(destination, () => {}));
+          if (redirectsLeft <= 0) {
+            reject(new Error(`Too many redirects for ${url}`));
+            return;
+          }
+          const nextUrl = new URL(res.headers.location, url).toString();
+          download(nextUrl, destination, redirectsLeft - 1)
+            .then(resolve)
+            .catch(reject);
           return;
         }
+
+        if (code !== 200) {
+          reject(new Error(`Download failed (${code}) for ${url}`));
+          return;
+        }
+
         res.pipe(file);
         file.on("finish", () => file.close(resolve));
-      })
-      .on("error", reject);
+      }
+    );
+    req.on("error", reject);
   });
 }
 

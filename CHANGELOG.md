@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.5] - 2026-04-19
+
+### Fixed
+- npm installer now follows HTTP redirects when downloading `.deb` assets from GitHub Releases.
+
 ## [0.0.4] - 2026-04-19
 
 ### Fixed
