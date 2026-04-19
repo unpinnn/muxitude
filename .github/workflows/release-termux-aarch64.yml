@@ -1,0 +1,68 @@
+name: Release Termux AArch64
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Setup Android SDK + NDK
+        uses: android-actions/setup-android@v4
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Build (aarch64-linux-android / arm64-v8a)
+        run: cargo ndk -t arm64-v8a build --release
+
+      - name: Prepare release assets (.tar.gz and .deb)
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist pkg/DEBIAN pkg/data/data/com.termux/files/usr/bin
+
+          # Common binary payload
+          cp target/aarch64-linux-android/release/muxitude dist/muxitude
+          chmod +x dist/muxitude
+
+          # Tarball asset
+          tar -C dist -czf muxitude-${GITHUB_REF_NAME}-aarch64-linux-android.tar.gz muxitude
+
+          # Debian package payload for Termux prefix
+          cp dist/muxitude pkg/data/data/com.termux/files/usr/bin/muxitude
+
+          cat > pkg/DEBIAN/control <<EOF
+          Package: muxitude
+          Version: ${VERSION}
+          Architecture: aarch64
+          Maintainer: unpinnn
+          Installed-Size: 2048
+          Depends: libandroid-support
+          Priority: optional
+          Section: utils
+          Homepage: https://github.com/unpinnn/muxitude
+          Description: Rust TUI package manager for Termux inspired by aptitude
+          EOF
+
+          dpkg-deb --build pkg muxitude_${VERSION}_aarch64.deb
+
+      - name: Publish GitHub Release asset
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            muxitude-${{ github.ref_name }}-aarch64-linux-android.tar.gz
+            muxitude_*_aarch64.deb
