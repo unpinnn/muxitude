@@ -27,7 +27,6 @@ function failUnsupported() {
 
 function download(url, destination, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destination);
     const req = https.get(
       url,
       { headers: { "user-agent": "muxitude-npm-installer" } },
@@ -35,11 +34,12 @@ function download(url, destination, redirectsLeft = 5) {
         const code = res.statusCode || 0;
 
         if (code >= 300 && code < 400 && res.headers.location) {
-          file.close(() => fs.unlink(destination, () => {}));
           if (redirectsLeft <= 0) {
             reject(new Error(`Too many redirects for ${url}`));
             return;
           }
+          // Drain redirect response and follow Location without touching destination file.
+          res.resume();
           const nextUrl = new URL(res.headers.location, url).toString();
           download(nextUrl, destination, redirectsLeft - 1)
             .then(resolve)
@@ -52,8 +52,13 @@ function download(url, destination, redirectsLeft = 5) {
           return;
         }
 
+        const file = fs.createWriteStream(destination);
         res.pipe(file);
         file.on("finish", () => file.close(resolve));
+        file.on("error", (err) => {
+          file.close(() => fs.unlink(destination, () => {}));
+          reject(err);
+        });
       }
     );
     req.on("error", reject);
@@ -77,17 +82,17 @@ async function main() {
   log(`Downloading ${debName}...`);
   await download(debUrl, debPath);
 
-  log("Installing local .deb with apt...");
+  if (!fs.existsSync(debPath)) {
+    throw new Error(`Downloaded file not found: ${debPath}`);
+  }
+
+  log("Installing local .deb with dpkg...");
   try {
-    // apt expects local package paths to be passed with ./ from the working dir.
-    execSync(`apt install -y "./${debName}"`, {
+    execSync(`dpkg -i "${debPath}"`, {
       stdio: "inherit",
-      cwd: tmpDir,
     });
-  } catch (_aptErr) {
-    // Fallback path in case apt local-install behavior changes.
-    log("apt local install failed; falling back to dpkg + apt -f install...");
-    execSync(`dpkg -i "${debPath}"`, { stdio: "inherit" });
+  } catch (_dpkgErr) {
+    log("dpkg reported missing deps; running apt -f install...");
     execSync("apt -f install -y", { stdio: "inherit" });
   }
 
