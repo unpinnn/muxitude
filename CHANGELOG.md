@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.10] - 2026-04-19
+
+### Changed
+- Align project version with `v0.0.10` tag for npm/crates publish workflows.
+
 ## [0.0.9] - 2026-04-19
 
 ### Changed
