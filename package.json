@@ -1,6 +1,6 @@
 {
   "name": "muxitude",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Termux installer wrapper for muxitude prebuilt .deb",
   "license": "GPL-3.0-only",
   "repository": {

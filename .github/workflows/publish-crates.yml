@@ -13,6 +13,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Wait for release workflow
+        uses: ./.github/actions/wait-for-workflow
+        with:
+          github_token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          sha: ${{ github.sha }}
+          workflow_file: release-termux-aarch64.yml
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
@@ -44,4 +52,3 @@ jobs:
       - name: Publish to crates.io
         if: steps.exists.outputs.skip != 'true'
         run: cargo publish --token "${{ secrets.CRATES_IO_TOKEN }}"
-

@@ -13,6 +13,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Wait for release workflow
+        uses: ./.github/actions/wait-for-workflow
+        with:
+          github_token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          sha: ${{ github.sha }}
+          workflow_file: release-termux-aarch64.yml
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:

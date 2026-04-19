@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.7] - 2026-04-19
+
+### Changed
+- Deduplicated workflow wait logic into a shared composite action:
+  - `.github/actions/wait-for-workflow/action.yml`
+- Updated npm/crates publish workflows to use the shared wait action before publishing.
+
 ## [0.0.6] - 2026-04-19
 
 ### Fixed
