@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.9] - 2026-04-19
+
+### Changed
+- Release version bump to `0.0.9` for crates.io, npm, and GitHub tag publishing.
+
 ## [0.0.7] - 2026-04-19
 
 ### Changed
