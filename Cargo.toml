@@ -1,0 +1,27 @@
+[package]
+name = "muxitude"
+version = "0.0.3"
+edition = "2021"
+description = "A Rust TUI package manager for Termux, inspired by Debian aptitude"
+license = "GPL-3.0-only"
+repository = "https://github.com/unpinnn/muxitude"
+
+[dependencies]
+ratatui = "0.26"
+crossterm = { version = "0.27", features = ["event-stream"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+dirs = "5.0"
+chrono = "0.4"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+textwrap = "0.16"
+openssl = { version = "0.10", features = ["vendored"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build:remote",
+      "type": "shell",
+      "command": "./scripts/build-remote.sh --remote root@192.168.76.1 --port 65500 --source . --target workspace/muxitude",
+      "problemMatcher": []
+    }
+  ]
+}
