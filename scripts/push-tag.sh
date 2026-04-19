@@ -32,10 +32,10 @@ auto_next_tag() {
 
 set_cargo_version() {
   local version="$1"
-  VERSION="$version" awk '
+  awk -v new_ver="$version" '
     BEGIN { replaced = 0 }
     /^version = "/ && replaced == 0 {
-      print "version = \"" VERSION "\""
+      print "version = \"" new_ver "\""
       replaced = 1
       next
     }
@@ -46,12 +46,12 @@ set_cargo_version() {
 
 set_package_json_version() {
   local version="$1"
-  VERSION="$version" awk '
+  awk -v new_ver="$version" '
     BEGIN { replaced = 0 }
     /^[[:space:]]*"version"[[:space:]]*:/ && replaced == 0 {
       match($0, /^[[:space:]]*/)
       indent = substr($0, RSTART, RLENGTH)
-      print indent "\"version\": \"" VERSION "\","
+      print indent "\"version\": \"" new_ver "\","
       replaced = 1
       next
     }
