@@ -4,17 +4,16 @@ set -euo pipefail
 # Push a release tag in v* format to trigger GitHub Actions release/publish flows.
 # Workflow policy:
 # 1) Require clean working tree.
-# 2) Push current branch to origin first.
-# 3) Tag the latest remote commit (origin/<branch>), not local-only state.
+# 2) Auto-bump Cargo.toml + package.json versions and commit.
+# 3) Push current branch to origin.
+# 4) Tag the latest remote commit (origin/<branch>), not local-only state.
 # Usage:
-#   ./scripts/push-tag.sh                       # auto bump patch from latest v* tag, tag HEAD
-#   ./scripts/push-tag.sh <commit-ish>         # auto bump patch, tag given commit
+#   ./scripts/push-tag.sh                       # auto bump patch from latest v* tag
 #   ./scripts/push-tag.sh 0.0.10
 #   ./scripts/push-tag.sh v0.0.10
-#   ./scripts/push-tag.sh v0.0.10 <commit-ish>
 
-if [[ $# -gt 2 ]]; then
-  echo "Usage: $0 [version|vX.Y.Z|commit-ish] [commit-ish]"
+if [[ $# -gt 1 ]]; then
+  echo "Usage: $0 [version|vX.Y.Z]"
   exit 1
 fi
 
@@ -31,6 +30,36 @@ auto_next_tag() {
   echo "v${major}.${minor}.${patch}"
 }
 
+set_cargo_version() {
+  local version="$1"
+  VERSION="$version" awk '
+    BEGIN { replaced = 0 }
+    /^version = "/ && replaced == 0 {
+      print "version = \"" VERSION "\""
+      replaced = 1
+      next
+    }
+    { print }
+  ' Cargo.toml > Cargo.toml.tmp
+  mv Cargo.toml.tmp Cargo.toml
+}
+
+set_package_json_version() {
+  local version="$1"
+  VERSION="$version" awk '
+    BEGIN { replaced = 0 }
+    /^[[:space:]]*"version"[[:space:]]*:/ && replaced == 0 {
+      match($0, /^[[:space:]]*/)
+      indent = substr($0, RSTART, RLENGTH)
+      print indent "\"version\": \"" VERSION "\","
+      replaced = 1
+      next
+    }
+    { print }
+  ' package.json > package.json.tmp
+  mv package.json.tmp package.json
+}
+
 read_cargo_version() {
   awk -F'"' '/^version = "/{print $2; exit}' Cargo.toml
 }
@@ -44,8 +73,6 @@ read_npm_version() {
 }
 
 arg1="${1:-}"
-arg2="${2:-}"
-target_ref=""
 branch="$(git branch --show-current)"
 
 if [[ -z "$branch" ]]; then
@@ -58,21 +85,18 @@ if [[ -n "$(git status --porcelain)" ]]; then
   exit 1
 fi
 
-echo "Pushing current branch '${branch}' to origin..."
-git push origin "$branch"
 git fetch --tags origin
 
 if [[ -z "$arg1" ]]; then
   tag="$(auto_next_tag)"
-  target_ref="origin/${branch}"
-elif [[ "$arg1" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+else
+  if ! [[ "$arg1" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Invalid tag format: $arg1"
+    echo "Expected: vMAJOR.MINOR.PATCH (example: v0.0.10)"
+    exit 1
+  fi
   tag="${arg1#v}"
   tag="v${tag}"
-  target_ref="${arg2:-origin/${branch}}"
-else
-  # First arg is treated as commit-ish, version is auto-incremented.
-  tag="$(auto_next_tag)"
-  target_ref="$arg1"
 fi
 
 if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -82,30 +106,33 @@ if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 tag_version="${tag#v}"
+if git rev-parse --verify "$tag" >/dev/null 2>&1 || git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+  echo "Tag already exists: $tag"
+  exit 1
+fi
+
+echo "Bumping versions to ${tag_version}..."
+set_cargo_version "$tag_version"
+set_package_json_version "$tag_version"
+
 cargo_version="$(read_cargo_version)"
 npm_version="$(read_npm_version)"
-
 if [[ "$cargo_version" != "$tag_version" || "$npm_version" != "$tag_version" ]]; then
-  echo "Version mismatch; refusing to tag."
-  echo "Tag version:   $tag_version"
-  echo "Cargo.toml:    $cargo_version"
-  echo "package.json:  $npm_version"
-  echo "Update versions first, commit, then run this script again."
+  echo "Failed to set versions correctly."
+  echo "Cargo.toml:   $cargo_version"
+  echo "package.json: $npm_version"
   exit 1
 fi
 
-if ! git rev-parse --verify "$target_ref" >/dev/null 2>&1; then
-  echo "Invalid commit-ish: $target_ref"
-  exit 1
-fi
+git add Cargo.toml package.json
+git commit -m "release: bump version to ${tag_version}"
 
-if git rev-parse --verify "$tag" >/dev/null 2>&1; then
-  echo "Tag already exists locally: $tag"
-  exit 1
-fi
+echo "Pushing current branch '${branch}' to origin..."
+git push origin "$branch"
+git fetch origin "$branch" --quiet
 
-echo "Creating tag ${tag} at ${target_ref}..."
-git tag "$tag" "$target_ref"
+echo "Creating tag ${tag} at origin/${branch}..."
+git tag "$tag" "origin/${branch}"
 
 echo "Pushing tag ${tag} to origin..."
 git push origin "$tag"
