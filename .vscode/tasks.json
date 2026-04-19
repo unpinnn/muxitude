@@ -4,7 +4,13 @@
     {
       "label": "build:remote",
       "type": "shell",
-      "command": "./scripts/build-remote.sh --remote root@192.168.76.1 --port 65500 --source . --target workspace/muxitude",
+      "command": "bash ./scripts/build-remote.sh --remote root@192.168.76.1 --port 65500 --source . --target workspace/muxitude",
+      "problemMatcher": []
+    },
+    {
+      "label": "gh:push:tag",
+      "type": "shell",
+      "command": "bash ./scripts/push-tag.sh",
       "problemMatcher": []
     }
   ]
