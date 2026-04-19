@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.6] - 2026-04-19
+
+### Fixed
+- npm postinstall now installs the downloaded `.deb` using `apt install ./<file>` from the package directory.
+- Added fallback install path (`dpkg -i` then `apt -f install -y`) if apt local install fails.
+
 ## [0.0.5] - 2026-04-19
 
 ### Fixed

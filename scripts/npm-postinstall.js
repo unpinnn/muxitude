@@ -77,8 +77,19 @@ async function main() {
   log(`Downloading ${debName}...`);
   await download(debUrl, debPath);
 
-  log("Installing with pkg...");
-  execSync(`pkg install -y "${debPath}"`, { stdio: "inherit" });
+  log("Installing local .deb with apt...");
+  try {
+    // apt expects local package paths to be passed with ./ from the working dir.
+    execSync(`apt install -y "./${debName}"`, {
+      stdio: "inherit",
+      cwd: tmpDir,
+    });
+  } catch (_aptErr) {
+    // Fallback path in case apt local-install behavior changes.
+    log("apt local install failed; falling back to dpkg + apt -f install...");
+    execSync(`dpkg -i "${debPath}"`, { stdio: "inherit" });
+    execSync("apt -f install -y", { stdio: "inherit" });
+  }
 
   log("Done. Run: muxitude");
 }
