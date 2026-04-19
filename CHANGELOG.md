@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.0.4] - 2026-04-19
+
+### Fixed
+- npm postinstall now correctly recognizes Termux when Node reports `process.platform=android`.
+- npm install flow now supports both `android/arm64` and `linux/arm64` for Termux detection.
+
 ## [0.0.3] - 2026-04-19
 
 ### Added

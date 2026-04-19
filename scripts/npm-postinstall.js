@@ -21,7 +21,7 @@ function failUnsupported() {
   log(
     `Detected: platform=${process.platform} arch=${process.arch} PREFIX=${process.env.PREFIX || "<unset>"}`
   );
-  log("Supported: Termux on linux/arm64.");
+  log("Supported: Termux on android/arm64 or linux/arm64.");
   process.exit(0);
 }
 
@@ -42,7 +42,9 @@ function download(url, destination) {
 }
 
 async function main() {
-  if (process.platform !== "linux" || process.arch !== "arm64" || !isTermux()) {
+  const supportedPlatform =
+    process.platform === "linux" || process.platform === "android";
+  if (!supportedPlatform || process.arch !== "arm64" || !isTermux()) {
     failUnsupported();
     return;
   }
