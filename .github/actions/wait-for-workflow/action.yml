@@ -12,7 +12,7 @@ inputs:
     description: Commit SHA to match
     required: true
   workflow_file:
-    description: Workflow filename to wait for (for example: release-termux-aarch64.yml)
+    description: "Workflow filename to wait for (for example: release-termux-aarch64.yml)"
     required: true
   timeout_seconds:
     description: Max time to wait in seconds
