@@ -37,7 +37,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="${{ steps.version.outputs.version }}"
-          if npm view "muxitude-cli@${VERSION}" version >/dev/null 2>&1; then
+          if npm view "muxitude@${VERSION}" version >/dev/null 2>&1; then
             echo "Version ${VERSION} already exists on npm. Skipping publish."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
@@ -49,4 +49,3 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public
-

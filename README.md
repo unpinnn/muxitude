@@ -86,7 +86,7 @@ cargo binstall muxitude
 The npm wrapper installs the prebuilt `.deb` release and lets `pkg` handle installation:
 
 ```bash
-npm install -g muxitude-cli
+npm install -g muxitude
 ```
 
 If your platform is not Termux on `linux/arm64`, it prints:
