@@ -31,6 +31,18 @@ auto_next_tag() {
   echo "v${major}.${minor}.${patch}"
 }
 
+read_cargo_version() {
+  awk -F'"' '/^version = "/{print $2; exit}' Cargo.toml
+}
+
+read_npm_version() {
+  if command -v node >/dev/null 2>&1; then
+    node -p "require('./package.json').version"
+    return
+  fi
+  awk -F'"' '/"version"\s*:\s*"/{print $4; exit}' package.json
+}
+
 arg1="${1:-}"
 arg2="${2:-}"
 target_ref=""
@@ -66,6 +78,19 @@ fi
 if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   echo "Invalid tag format: $tag"
   echo "Expected: vMAJOR.MINOR.PATCH (example: v0.0.10)"
+  exit 1
+fi
+
+tag_version="${tag#v}"
+cargo_version="$(read_cargo_version)"
+npm_version="$(read_npm_version)"
+
+if [[ "$cargo_version" != "$tag_version" || "$npm_version" != "$tag_version" ]]; then
+  echo "Version mismatch; refusing to tag."
+  echo "Tag version:   $tag_version"
+  echo "Cargo.toml:    $cargo_version"
+  echo "package.json:  $npm_version"
+  echo "Update versions first, commit, then run this script again."
   exit 1
 fi
 
