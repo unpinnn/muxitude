@@ -27,8 +27,14 @@ impl App {
         (title, body)
     }
 
-    pub(super) fn top_menus() -> [MenuKind; 3] {
-        [MenuKind::Actions, MenuKind::Undo, MenuKind::Package]
+    pub(super) fn top_menus() -> [MenuKind; 5] {
+        [
+            MenuKind::Actions,
+            MenuKind::Undo,
+            MenuKind::Package,
+            MenuKind::Options,
+            MenuKind::Help,
+        ]
     }
 
     pub(super) fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
@@ -199,6 +205,64 @@ impl App {
                     enabled: true,
                 },
             ],
+            MenuKind::Options => vec![
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "Preferences",
+                    shortcut: "",
+                    enabled: true,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Separator,
+                    label: "",
+                    shortcut: "",
+                    enabled: false,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "Revert options",
+                    shortcut: "",
+                    enabled: true,
+                },
+            ],
+            MenuKind::Help => vec![
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "About",
+                    shortcut: "",
+                    enabled: true,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "Help",
+                    shortcut: "?",
+                    enabled: false,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "User's Manual",
+                    shortcut: "",
+                    enabled: false,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "FAQ",
+                    shortcut: "",
+                    enabled: false,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "News",
+                    shortcut: "",
+                    enabled: false,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "License",
+                    shortcut: "",
+                    enabled: true,
+                },
+            ],
         }
     }
 
@@ -233,12 +297,16 @@ impl App {
             MenuKind::Actions => 0,
             MenuKind::Undo => 9,
             MenuKind::Package => 15,
+            MenuKind::Options => 42,
+            MenuKind::Help => 58,
         };
         Rect::new(x, 1, width.max(12), height.max(3))
     }
 
     // Construct app state and perform initial data load.
     pub fn new(package_cache: PackageCache) -> Self {
+        let options_path = Self::options_file_path();
+        let options = Self::load_options(&options_path);
         let mut app = Self {
             package_cache,
             should_quit: false,
@@ -271,8 +339,17 @@ impl App {
             update_status: String::new(),
             search_input: String::new(),
             last_search_query: None,
+            options: options.clone(),
+            options_path,
+            info_area_visible: options.info_area_visible_by_default,
+            preferences_rows: Vec::new(),
+            preferences_selected_row: 0,
+            help_page_title: String::new(),
+            help_page_lines: Vec::new(),
+            help_page_scroll: 0,
         };
         app.refresh_data();
+        app.refresh_preferences_rows();
         app
     }
 

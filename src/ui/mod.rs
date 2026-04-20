@@ -15,7 +15,9 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 use ratatui::{Frame, Terminal};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -33,6 +35,8 @@ enum MenuKind {
     Actions,
     Undo,
     Package,
+    Options,
+    Help,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -65,6 +69,7 @@ enum DeferredAction {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum OverlayKind {
     SearchDialog,
+    ExitConfirm,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -73,6 +78,8 @@ enum ViewMode {
     PendingReview,
     UpdateList,
     ApplyPending,
+    Preferences,
+    HelpPage,
 }
 
 #[derive(Clone)]
@@ -89,6 +96,62 @@ struct TreeRow {
     description: String,
     node: RowNode,
     style: Style,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum PauseAfterDownload {
+    Never,
+    OnlyIfError,
+    Always,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+struct UiOptions {
+    help_bar: bool,
+    menubar_autohide: bool,
+    minibuf_prompts: bool,
+    incremental_search: bool,
+    exit_on_last_close: bool,
+    prompt_on_exit: bool,
+    pause_after_download: PauseAfterDownload,
+    status_line_download_bar: bool,
+    info_area_visible_by_default: bool,
+}
+
+impl Default for UiOptions {
+    fn default() -> Self {
+        Self {
+            help_bar: true,
+            menubar_autohide: false,
+            minibuf_prompts: false,
+            incremental_search: true,
+            exit_on_last_close: true,
+            prompt_on_exit: true,
+            pause_after_download: PauseAfterDownload::OnlyIfError,
+            status_line_download_bar: false,
+            info_area_visible_by_default: true,
+        }
+    }
+}
+
+#[derive(Clone)]
+enum PreferenceNode {
+    GroupHeader,
+    BoolOption { key: &'static str },
+    PauseHeader,
+    PauseChoice(PauseAfterDownload),
+}
+
+#[derive(Clone)]
+struct PreferenceRow {
+    text: String,
+    node: PreferenceNode,
+    option_name: Option<&'static str>,
+    default_value: Option<String>,
+    current_value: Option<String>,
+    long_description: String,
 }
 
 pub struct App {
@@ -123,10 +186,20 @@ pub struct App {
     update_status: String,
     search_input: String,
     last_search_query: Option<String>,
+    options: UiOptions,
+    options_path: PathBuf,
+    info_area_visible: bool,
+    preferences_rows: Vec<PreferenceRow>,
+    preferences_selected_row: usize,
+    help_page_title: String,
+    help_page_lines: Vec<String>,
+    help_page_scroll: usize,
 }
 
 mod actions;
 mod core;
 mod data;
+mod help;
 mod input;
+mod options;
 mod render;

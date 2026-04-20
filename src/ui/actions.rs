@@ -97,10 +97,18 @@ impl App {
             (MenuKind::Package, "Changelog") => {
                 self.status_message = Some("Changelog action is not implemented yet.".to_string());
             }
+            (MenuKind::Options, "Preferences") => self.open_preferences_view(),
+            (MenuKind::Options, "Revert options") => self.revert_options(),
+            (MenuKind::Help, "About") => self.open_about_view(),
+            (MenuKind::Help, "License") => self.open_license_view(),
             (MenuKind::Actions, "Play Minesweeper")
             | (MenuKind::Actions, "Become root")
             | (MenuKind::Package, "Forbid Version")
-            | (MenuKind::Package, "Cycle Package Information") => {
+            | (MenuKind::Package, "Cycle Package Information")
+            | (MenuKind::Help, "Help")
+            | (MenuKind::Help, "User's Manual")
+            | (MenuKind::Help, "FAQ")
+            | (MenuKind::Help, "News") => {
                 self.status_message = Some(format!("'{}' is not implemented yet.", entry.label));
             }
             _ => {}
@@ -394,9 +402,24 @@ impl App {
                 }
                 KeyCode::Backspace => {
                     self.search_input.pop();
+                    if self.options.incremental_search {
+                        self.execute_search(true);
+                    }
                 }
                 KeyCode::Char(c) => {
                     self.search_input.push(c);
+                    if self.options.incremental_search {
+                        self.execute_search(true);
+                    }
+                }
+                _ => {}
+            },
+            Some(OverlayKind::ExitConfirm) => match code {
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                    self.active_overlay = None;
+                }
+                KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    self.should_quit = true;
                 }
                 _ => {}
             },

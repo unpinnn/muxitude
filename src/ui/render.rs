@@ -3,13 +3,20 @@ use super::*;
 impl App {
     // Top-level renderer: menu bar, main pane, status/detail pane, overlays.
     pub(super) fn draw(&mut self, frame: &mut Frame) {
+        let menubar_hidden = self.options.menubar_autohide
+            && self.active_menu.is_none()
+            && self.view_mode == ViewMode::Browser;
+        let top_bar_height = if menubar_hidden { 0 } else { 1 };
+        let header_height = 1;
+        let info_height = if self.info_area_visible { 7 } else { 0 };
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1),
-                Constraint::Length(1),
+                Constraint::Length(top_bar_height),
+                Constraint::Length(header_height),
                 Constraint::Min(8),
-                Constraint::Length(7),
+                Constraint::Length(info_height),
             ])
             .split(frame.size());
 
@@ -39,20 +46,67 @@ impl App {
                 "Package",
                 menu_item_style(self.active_menu == Some(MenuKind::Package)),
             ),
-            Span::styled("  Resolver  Search  Options  Views  Help", bar_style),
+            Span::styled("  Resolver  Search  ", bar_style),
+            Span::styled(
+                "Options",
+                menu_item_style(self.active_menu == Some(MenuKind::Options)),
+            ),
+            Span::styled("  Views  ", bar_style),
+            Span::styled(
+                "Help",
+                menu_item_style(self.active_menu == Some(MenuKind::Help)),
+            ),
         ]);
-        frame.render_widget(Paragraph::new(top_line).style(bar_style), chunks[0]);
+        if top_bar_height > 0 {
+            frame.render_widget(Paragraph::new(top_line).style(bar_style), chunks[0]);
+        }
         let second_line = if self.view_mode == ViewMode::UpdateList {
             "            Packages                        List Update".to_string()
         } else if self.view_mode == ViewMode::ApplyPending {
             "            Packages                   Install/Remove".to_string()
+        } else if self.view_mode == ViewMode::Preferences {
+            "            Packages                       Preferences".to_string()
+        } else if self.view_mode == ViewMode::HelpPage {
+            format!(
+                "            Packages                           {}",
+                self.help_page_title
+            )
+        } else if self.options.help_bar && self.view_mode == ViewMode::Browser {
+            format!(
+                "muxitude {} @ {}   [g apply  u update  / find  q quit]",
+                self.app_version, self.host_name
+            )
         } else {
             format!("muxitude {} @ {}", self.app_version, self.host_name)
         };
         frame.render_widget(Paragraph::new(second_line).style(bar_style), chunks[1]);
         self.list_area = chunks[2];
 
-        if self.view_mode == ViewMode::UpdateList || self.view_mode == ViewMode::ApplyPending {
+        if self.view_mode == ViewMode::Preferences {
+            let items: Vec<ListItem> = self
+                .preferences_rows
+                .iter()
+                .map(|r| {
+                    let style = match r.node {
+                        PreferenceNode::GroupHeader | PreferenceNode::PauseHeader => {
+                            Style::default().fg(Color::White).bg(Color::Black)
+                        }
+                        _ => Style::default().fg(Color::White).bg(Color::Black),
+                    };
+                    ListItem::new(Line::from(vec![Span::raw(r.text.clone())])).style(style)
+                })
+                .collect();
+            let list = List::new(items)
+                .style(normal_style)
+                .highlight_style(selected_style);
+            if self.preferences_rows.is_empty() {
+                self.list_state.select(None);
+            } else {
+                self.list_state.select(Some(self.preferences_selected_row));
+            }
+            frame.render_stateful_widget(list, chunks[2], &mut self.list_state);
+        } else if self.view_mode == ViewMode::UpdateList || self.view_mode == ViewMode::ApplyPending
+        {
             let lines: Vec<Line> = self
                 .update_lines
                 .iter()
@@ -84,6 +138,18 @@ impl App {
                     .scroll((self.pending_review_scroll as u16, 0)),
                 chunks[2],
             );
+        } else if self.view_mode == ViewMode::HelpPage {
+            let lines: Vec<Line> = self
+                .help_page_lines
+                .iter()
+                .map(|line| Line::from(Span::raw(line.clone())))
+                .collect();
+            frame.render_widget(
+                Paragraph::new(lines)
+                    .style(normal_style)
+                    .scroll((self.help_page_scroll as u16, 0)),
+                chunks[2],
+            );
         } else {
             let items: Vec<ListItem> = self
                 .rows
@@ -106,6 +172,8 @@ impl App {
         let selected = if self.view_mode == ViewMode::PendingReview
             || self.view_mode == ViewMode::UpdateList
             || self.view_mode == ViewMode::ApplyPending
+            || self.view_mode == ViewMode::Preferences
+            || self.view_mode == ViewMode::HelpPage
         {
             None
         } else {
@@ -126,43 +194,81 @@ impl App {
             Some(RowNode::Package(_)) => Self::split_detail_text(&desc),
             _ => (String::new(), desc),
         };
-        let detail_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Length(1), Constraint::Min(1)])
-            .split(chunks[3]);
-        let title_text = if detail_title.trim().is_empty() {
-            " ".to_string()
-        } else {
-            detail_title
-        };
-        frame.render_widget(
-            Paragraph::new(title_text).style(bar_style),
-            detail_chunks[0],
-        );
-        let mut body = detail_body;
-        if self.view_mode == ViewMode::UpdateList || self.view_mode == ViewMode::ApplyPending {
-            body = String::new();
-            body.push_str(&self.update_status);
-        } else if self.view_mode != ViewMode::PendingReview {
-            if let Some(status) = &self.status_message {
-                if !body.is_empty() {
-                    body.push_str("\n\n");
+
+        if info_height > 0 {
+            let detail_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Length(1), Constraint::Min(1)])
+                .split(chunks[3]);
+            let title_text = if self.view_mode == ViewMode::Preferences {
+                if let Some(row) = self.selected_preference_row() {
+                    row.option_name.unwrap_or(" ").to_string()
+                } else {
+                    " ".to_string()
                 }
-                body.push_str(status);
+            } else if detail_title.trim().is_empty() {
+                " ".to_string()
+            } else {
+                detail_title
+            };
+            frame.render_widget(
+                Paragraph::new(title_text).style(bar_style),
+                detail_chunks[0],
+            );
+            let mut body = if self.view_mode == ViewMode::Preferences {
+                if let Some(row) = self.selected_preference_row() {
+                    let def = row.default_value.clone().unwrap_or_else(|| "-".to_string());
+                    let cur = row.current_value.clone().unwrap_or_else(|| "-".to_string());
+                    format!(
+                        "Default: {}\nValue: {}\n\n{}",
+                        def, cur, row.long_description
+                    )
+                } else {
+                    String::new()
+                }
+            } else {
+                detail_body
+            };
+            if self.active_overlay == Some(OverlayKind::SearchDialog)
+                && self.options.minibuf_prompts
+            {
+                body = format!(
+                    "Search for:\n{}\n\nPress Enter to search, Esc to cancel.",
+                    self.search_input
+                );
             }
+            if self.view_mode == ViewMode::UpdateList || self.view_mode == ViewMode::ApplyPending {
+                body = String::new();
+                body.push_str(&self.update_status);
+            } else if self.view_mode == ViewMode::HelpPage {
+                body = "Press Esc to return.".to_string();
+            } else if self.view_mode != ViewMode::PendingReview
+                && self.view_mode != ViewMode::Preferences
+            {
+                if let Some(status) = &self.status_message {
+                    if !body.is_empty() {
+                        body.push_str("\n\n");
+                    }
+                    body.push_str(status);
+                }
+            }
+            frame.render_widget(Paragraph::new(body).style(normal_style), detail_chunks[1]);
         }
-        frame.render_widget(Paragraph::new(body).style(normal_style), detail_chunks[1]);
     }
 
     // Draw transient overlays (search dialog, etc.).
     pub(super) fn draw_overlay(&self, frame: &mut Frame) {
         match self.active_overlay {
             Some(OverlayKind::SearchDialog) => self.draw_search_dialog(frame),
+            Some(OverlayKind::ExitConfirm) => self.draw_exit_confirm(frame),
             None => {}
         }
     }
 
     pub(super) fn draw_search_dialog(&self, frame: &mut Frame) {
+        if self.options.minibuf_prompts && self.info_area_visible {
+            return;
+        }
         let area = frame.size();
         let width = area.width.min(92);
         let height = 6u16;
@@ -201,6 +307,32 @@ impl App {
         frame.render_widget(
             Paragraph::new(lines).style(Style::default().bg(Color::Blue)),
             inner,
+        );
+    }
+
+    pub(super) fn draw_exit_confirm(&self, frame: &mut Frame) {
+        let area = frame.size();
+        let width = 42u16.min(area.width);
+        let height = 5u16.min(area.height);
+        let x = area.x + area.width.saturating_sub(width) / 2;
+        let y = area.y + area.height.saturating_sub(height) / 2;
+        let popup = Rect::new(x, y, width, height);
+        frame.render_widget(Clear, popup);
+        frame.render_widget(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(Style::default().fg(Color::White).bg(Color::Blue)),
+            popup,
+        );
+        frame.render_widget(
+            Paragraph::new("Quit muxitude?\n[ Enter / y ] Yes    [ Esc / n ] No")
+                .style(Style::default().fg(Color::White).bg(Color::Blue)),
+            Rect::new(
+                popup.x.saturating_add(1),
+                popup.y.saturating_add(1),
+                popup.width.saturating_sub(2),
+                popup.height.saturating_sub(2),
+            ),
         );
     }
 

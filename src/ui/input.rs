@@ -73,6 +73,53 @@ impl App {
             return;
         }
 
+        if self.view_mode == ViewMode::Preferences {
+            match code {
+                KeyCode::Esc => {
+                    self.view_mode = ViewMode::Browser;
+                    self.status_message = Some("Returned to package browser.".to_string());
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.preferences_selected_row =
+                        self.next_selectable_preference_index(self.preferences_selected_row, -1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.preferences_selected_row =
+                        self.next_selectable_preference_index(self.preferences_selected_row, 1);
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => self.activate_selected_preference(),
+                _ => {}
+            }
+            return;
+        }
+
+        if self.view_mode == ViewMode::HelpPage {
+            let viewport = self.list_area.height as usize;
+            let max_scroll = self.help_page_lines.len().saturating_sub(viewport);
+            match code {
+                KeyCode::Esc | KeyCode::Enter => {
+                    self.view_mode = ViewMode::Browser;
+                    self.help_page_scroll = 0;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.help_page_scroll = self.help_page_scroll.saturating_sub(1);
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.help_page_scroll = (self.help_page_scroll + 1).min(max_scroll);
+                }
+                KeyCode::PageUp => {
+                    self.help_page_scroll = self.help_page_scroll.saturating_sub(10);
+                }
+                KeyCode::PageDown => {
+                    self.help_page_scroll = (self.help_page_scroll + 10).min(max_scroll);
+                }
+                KeyCode::Home => self.help_page_scroll = 0,
+                KeyCode::End => self.help_page_scroll = max_scroll,
+                _ => {}
+            }
+            return;
+        }
+
         if self.view_mode == ViewMode::UpdateList || self.view_mode == ViewMode::ApplyPending {
             let viewport = self.list_area.height as usize;
             let max_scroll = self.update_lines.len().saturating_sub(viewport);
@@ -149,7 +196,13 @@ impl App {
         }
 
         match code {
-            KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Char('q') => {
+                if self.options.prompt_on_exit {
+                    self.active_overlay = Some(OverlayKind::ExitConfirm);
+                } else {
+                    self.should_quit = true;
+                }
+            }
             KeyCode::Char('r') => self.refresh_data(),
             KeyCode::Char('/') => self.open_search_dialog(),
             KeyCode::Char('n') => self.find_again(true),
@@ -215,6 +268,8 @@ impl App {
             KeyCode::Char('a') => self.open_menu(MenuKind::Actions),
             KeyCode::Char('z') => self.open_menu(MenuKind::Undo),
             KeyCode::Char('p') => self.open_menu(MenuKind::Package),
+            KeyCode::Char('o') => self.open_menu(MenuKind::Options),
+            KeyCode::Char('h') => self.open_menu(MenuKind::Help),
             _ => {}
         }
     }
@@ -256,6 +311,20 @@ impl App {
             }
             return;
         }
+        if self.view_mode == ViewMode::HelpPage {
+            let viewport = self.list_area.height as usize;
+            let max_scroll = self.help_page_lines.len().saturating_sub(viewport);
+            match mouse.kind {
+                MouseEventKind::ScrollUp => {
+                    self.help_page_scroll = self.help_page_scroll.saturating_sub(3);
+                }
+                MouseEventKind::ScrollDown => {
+                    self.help_page_scroll = (self.help_page_scroll + 3).min(max_scroll);
+                }
+                _ => {}
+            }
+            return;
+        }
 
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
@@ -272,6 +341,14 @@ impl App {
                     }
                     if (15..=21).contains(&x) {
                         self.open_menu(MenuKind::Package);
+                        return;
+                    }
+                    if (42..=48).contains(&x) {
+                        self.open_menu(MenuKind::Options);
+                        return;
+                    }
+                    if (58..=61).contains(&x) {
+                        self.open_menu(MenuKind::Help);
                         return;
                     }
                     self.close_menu();
