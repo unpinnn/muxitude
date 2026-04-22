@@ -1,7 +1,10 @@
+//! Data shaping for the browser tree:
+//! group derivation, section/archive nesting, and row rebuild.
 use super::*;
 
 impl App {
-    // Pull fresh package sets from cache layer and rebuild visible tree.
+    /// Reload package data from cache and rebuild visible tree rows.
+    ///
     pub(super) fn refresh_data(&mut self) {
         self.all_packages = self.package_cache.get_all().unwrap_or_default();
         self.upgradable_names = self
@@ -88,6 +91,8 @@ impl App {
         self.rebuild_rows();
     }
 
+    /// Return whether a package belongs to a top-level browser group.
+    ///
     pub(super) fn package_in_group(&self, p: &Package, kind: GroupKind) -> bool {
         match kind {
             GroupKind::Upgradable => self.upgradable_names.contains(&p.name),
@@ -100,6 +105,8 @@ impl App {
         }
     }
 
+    /// Read `apt-mark showauto` and return package names marked as auto.
+    ///
     pub(super) fn get_auto_installed_names() -> HashSet<String> {
         let output = Command::new("apt-mark").arg("showauto").output();
         let Ok(output) = output else {
@@ -116,7 +123,8 @@ impl App {
             .collect()
     }
 
-    // Build aptitude-style 3-level tree rows from current group/section state.
+    /// Rebuild aptitude-style tree rows from current group expansion state.
+    ///
     pub(super) fn rebuild_rows(&mut self) {
         self.rows.clear();
         for g in &self.groups {

@@ -55,6 +55,7 @@ fn main() -> Result<()> {
 ///
 /// Supported:
 /// - `--section-mappings-merge <path>`
+///
 fn parse_section_merge_arg() -> Result<Option<PathBuf>> {
     // Minimal argument parser: only accepts --section-mappings-merge <path>.
     let mut args = env::args().skip(1);

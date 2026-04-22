@@ -1,3 +1,4 @@
+# CI workflow for formatting, linting, building, and testing on GitHub runners.
 name: Rust CI
 
 on:

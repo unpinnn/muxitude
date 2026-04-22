@@ -1,7 +1,12 @@
+//! Core app lifecycle and static UI definitions (menus, popup geometry).
 use super::*;
 
 impl App {
-    // Prefer system hostname command for Termux/Linux parity.
+    /// Detect the current host name for the header line.
+    ///
+    /// Prefers the `hostname` command and falls back to standard
+    /// environment variables.
+    ///
     pub(super) fn detect_host_name() -> String {
         if let Ok(output) = Command::new("hostname").output() {
             if let Ok(name) = String::from_utf8(output.stdout) {
@@ -16,6 +21,8 @@ impl App {
             .unwrap_or_else(|_| "host".to_string())
     }
 
+    /// Split a multiline detail block into `(title, body)`.
+    ///
     pub(super) fn split_detail_text(detail: &str) -> (String, String) {
         let mut lines = detail.lines();
         let title = lines
@@ -27,16 +34,21 @@ impl App {
         (title, body)
     }
 
-    pub(super) fn top_menus() -> [MenuKind; 5] {
+    /// Return the static order of top menubar items.
+    ///
+    pub(super) fn top_menus() -> [MenuKind; 6] {
         [
             MenuKind::Actions,
             MenuKind::Undo,
             MenuKind::Package,
+            MenuKind::Search,
             MenuKind::Options,
             MenuKind::Help,
         ]
     }
 
+    /// Build popup menu entries for the given top-menu section.
+    ///
     pub(super) fn menu_entries(kind: MenuKind) -> Vec<MenuEntry> {
         match kind {
             MenuKind::Actions => vec![
@@ -178,7 +190,7 @@ impl App {
                     kind: MenuEntryKind::Action,
                     label: "Forbid Version",
                     shortcut: "F",
-                    enabled: true,
+                    enabled: false,
                 },
                 MenuEntry {
                     kind: MenuEntryKind::Separator,
@@ -196,13 +208,69 @@ impl App {
                     kind: MenuEntryKind::Action,
                     label: "Cycle Package Information",
                     shortcut: "i",
-                    enabled: true,
+                    enabled: false,
                 },
                 MenuEntry {
                     kind: MenuEntryKind::Action,
                     label: "Changelog",
                     shortcut: "C",
+                    enabled: false,
+                },
+            ],
+            MenuKind::Search => vec![
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "Find",
+                    shortcut: "/",
                     enabled: true,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "Find Backwards",
+                    shortcut: "\\",
+                    enabled: true,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "Find Again",
+                    shortcut: "n",
+                    enabled: true,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "Find Again Backwards",
+                    shortcut: "N",
+                    enabled: true,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Separator,
+                    label: "",
+                    shortcut: "",
+                    enabled: false,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "Limit Display",
+                    shortcut: "l",
+                    enabled: false,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "Un-Limit Display",
+                    shortcut: "",
+                    enabled: false,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Separator,
+                    label: "",
+                    shortcut: "",
+                    enabled: false,
+                },
+                MenuEntry {
+                    kind: MenuEntryKind::Action,
+                    label: "Find Broken",
+                    shortcut: "b",
+                    enabled: false,
                 },
             ],
             MenuKind::Options => vec![
@@ -266,6 +334,8 @@ impl App {
         }
     }
 
+    /// Return the first selectable action index in a popup menu.
+    ///
     pub(super) fn first_action_index(entries: &[MenuEntry]) -> usize {
         entries
             .iter()
@@ -273,22 +343,23 @@ impl App {
             .unwrap_or(0)
     }
 
+    /// Compute popup rectangle anchored under its menubar label.
+    ///
     pub(super) fn menu_popup_rect(kind: MenuKind) -> Rect {
         let entries = Self::menu_entries(kind);
         let content_width = entries
             .iter()
             .filter(|e| e.kind == MenuEntryKind::Action)
             .map(|e| {
-                let rhs = if e.shortcut.is_empty() {
-                    0
+                if e.shortcut.is_empty() {
+                    e.label.len()
                 } else {
-                    e.shortcut.len() + 1
-                };
-                e.label.len() + rhs + 1 // +1 for left marker/space
+                    e.label.len() + 1 + e.shortcut.len()
+                }
             })
             .max()
             .unwrap_or(8);
-        let width = (content_width + 2) as u16; // borders
+        let width = (content_width + 3) as u16; // marker + borders
         let height = (entries.len() + 2) as u16;
         // Anchor directly under top-bar menu labels:
         // "Actions  Undo  Package ..."
@@ -297,13 +368,15 @@ impl App {
             MenuKind::Actions => 0,
             MenuKind::Undo => 9,
             MenuKind::Package => 15,
+            MenuKind::Search => 34,
             MenuKind::Options => 42,
             MenuKind::Help => 58,
         };
         Rect::new(x, 1, width.max(12), height.max(3))
     }
 
-    // Construct app state and perform initial data load.
+    /// Construct application state and load initial package data.
+    ///
     pub fn new(package_cache: PackageCache) -> Self {
         let options_path = Self::options_file_path();
         let options = Self::load_options(&options_path);
@@ -332,12 +405,16 @@ impl App {
             pending_remove_names: HashSet::new(),
             deferred_action: None,
             active_overlay: None,
+            exit_confirm_yes_selected: false,
+            search_dialog_focus: SearchDialogFocus::Input,
             view_mode: ViewMode::Browser,
             pending_review_scroll: 0,
             update_lines: Vec::new(),
             update_scroll: 0,
             update_status: String::new(),
+            running_action: None,
             search_input: String::new(),
+            search_dialog_forward: true,
             last_search_query: None,
             options: options.clone(),
             options_path,
@@ -353,9 +430,11 @@ impl App {
         app
     }
 
-    // Main UI loop: draw, process deferred work, process input.
+    /// Run the main UI event loop until the app exits.
+    ///
     pub fn run(&mut self, terminal: &mut Terminal<impl ratatui::backend::Backend>) -> Result<()> {
         loop {
+            self.tick_running_action();
             terminal.draw(|f| self.draw(f))?;
 
             if let Some(action) = self.deferred_action.take() {

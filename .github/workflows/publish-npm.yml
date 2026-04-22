@@ -1,3 +1,4 @@
+# Publish npm wrapper package on version tags after release build succeeds.
 name: Publish npm
 
 on:

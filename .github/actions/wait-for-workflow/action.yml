@@ -1,3 +1,4 @@
+# Composite action that blocks until a target workflow for the same commit finishes.
 name: Wait For Workflow
 description: Wait until another workflow run for the same commit SHA completes successfully.
 

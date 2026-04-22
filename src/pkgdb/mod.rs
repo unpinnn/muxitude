@@ -14,22 +14,36 @@ use std::process::Command;
 use tracing::{debug, info, warn};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Package metadata row stored in the local cache.
 pub struct Package {
+    /// Debian/apt package name.
     pub name: String,
+    /// Candidate version from available repositories.
     pub version: String,
+    /// Whether package is currently installed.
     pub installed: bool,
+    /// Installed version when package is installed.
     pub installed_version: Option<String>,
+    /// Package size in bytes (when available).
     pub size: Option<u64>,
+    /// Human-readable package summary/description.
     pub description: String,
+    /// Parsed dependency package names.
     pub depends: Vec<String>,
+    /// Debian priority field.
     pub priority: String,
+    /// Logical section used by muxitude grouping.
     pub section: String,
+    /// Package maintainer string.
     pub maintainer: String,
+    /// Target architecture string.
     pub architecture: String,
+    /// Upstream homepage URL when available.
     pub homepage: Option<String>,
 }
 
 #[derive(Debug, Clone)]
+/// SQLite-backed package cache and refresh driver.
 pub struct PackageCache {
     db_path: PathBuf,
     section_mappings_merge_path: Option<PathBuf>,
@@ -38,6 +52,10 @@ pub struct PackageCache {
 mod parser;
 
 impl PackageCache {
+    /// Normalize a section name to muxitude canonical form.
+    ///
+    /// Component prefixes like `contrib/sound` are reduced to `sound`.
+    ///
     pub(super) fn canonical_section(section: &str) -> String {
         // Debian indexes may include component-prefixed sections such as
         // "contrib/sound" or "non-free/libs". Aptitude-style section trees
@@ -52,6 +70,10 @@ impl PackageCache {
             .to_string()
     }
 
+    /// Parse `package=section` mapping lines into a hash map.
+    ///
+    /// Invalid lines are skipped with a warning.
+    ///
     pub(super) fn parse_section_mappings(raw: &str, source: &str) -> HashMap<String, String> {
         // Accept simple key=value lines; skip invalid entries but keep loading.
         let mut mappings = HashMap::new();
@@ -90,6 +112,8 @@ impl PackageCache {
         mappings
     }
 
+    /// Load embedded section mappings and apply optional runtime overrides.
+    ///
     pub(super) fn load_section_mappings(&self) -> Result<HashMap<String, String>> {
         // Start from embedded mappings, then apply runtime overrides.
         let mut mappings = Self::parse_section_mappings(
@@ -111,6 +135,8 @@ impl PackageCache {
         Ok(mappings)
     }
 
+    /// Create a package cache instance and initialize its database.
+    ///
     pub fn new_with_section_mappings_merge(
         section_mappings_merge_path: Option<PathBuf>,
     ) -> Result<Self> {
@@ -131,6 +157,8 @@ impl PackageCache {
         Ok(cache)
     }
 
+    /// Create/migrate SQLite schema used by the cache.
+    ///
     pub(super) fn init_database(&self) -> Result<()> {
         // Single table cache with last-updated timestamps for stale checks.
         let conn = Connection::open(&self.db_path)?;
@@ -179,6 +207,8 @@ impl PackageCache {
         Ok(())
     }
 
+    /// Refresh package cache when it is older than ~1 hour.
+    ///
     pub fn refresh_if_needed(&self) -> Result<()> {
         // Avoid refreshing on every startup; refresh roughly hourly.
         let conn = Connection::open(&self.db_path)?;
@@ -206,6 +236,8 @@ impl PackageCache {
         Ok(())
     }
 
+    /// Run `apt update` and rebuild cache contents.
+    ///
     pub fn refresh(&self) -> Result<()> {
         // Refresh apt metadata first, then rebuild local cache records.
         info!("Running apt update...");
@@ -222,6 +254,8 @@ impl PackageCache {
         self.refresh_after_update()
     }
 
+    /// Rebuild cache content after apt metadata is updated.
+    ///
     pub fn refresh_after_update(&self) -> Result<()> {
         // Rebuild cache from installed + available package metadata.
         let installed = self.get_installed_packages()?;
@@ -233,6 +267,8 @@ impl PackageCache {
         Ok(())
     }
 
+    /// Return whether the cache currently has no package rows.
+    ///
     pub(super) fn is_cache_empty(&self) -> Result<bool> {
         let conn = Connection::open(&self.db_path)?;
         let mut stmt = conn.prepare("SELECT COUNT(*) FROM packages")?;
@@ -240,6 +276,8 @@ impl PackageCache {
         Ok(count == 0)
     }
 
+    /// Return installed package/version map parsed from `dpkg -l`.
+    ///
     pub(super) fn get_installed_packages(&self) -> Result<HashMap<String, String>> {
         let output = Command::new("dpkg")
             .args(["-l"])
@@ -264,6 +302,11 @@ impl PackageCache {
         Ok(installed)
     }
 
+    /// Upsert package records into SQLite cache.
+    ///
+    /// When `bootstrap` is true, marks `first_seen` far in the past so that
+    /// first refresh does not classify existing rows as "new".
+    ///
     pub(super) fn store_to_db(&self, packages: &[Package], bootstrap: bool) -> Result<()> {
         let mut conn = Connection::open(&self.db_path)?;
         let tx = conn.transaction()?;
@@ -312,6 +355,8 @@ impl PackageCache {
         Ok(())
     }
 
+    /// Return all cached package rows sorted by name.
+    ///
     pub fn get_all(&self) -> Result<Vec<Package>> {
         let conn = Connection::open(&self.db_path)?;
         let mut stmt = conn.prepare("SELECT * FROM packages ORDER BY name")?;
@@ -321,6 +366,8 @@ impl PackageCache {
         Ok(packages)
     }
 
+    /// Return currently uninstalled packages seen within `days`.
+    ///
     pub fn get_new_packages(&self, days: i64) -> Result<Vec<Package>> {
         let conn = Connection::open(&self.db_path)?;
         let mut stmt = conn.prepare(
@@ -336,6 +383,8 @@ impl PackageCache {
         Ok(packages)
     }
 
+    /// Clear "new package" markers for uninstalled packages.
+    ///
     pub fn forget_new_packages(&self) -> Result<()> {
         let conn = Connection::open(&self.db_path)?;
         conn.execute(
@@ -348,6 +397,8 @@ impl PackageCache {
         Ok(())
     }
 
+    /// Return currently upgradable packages as full cache rows.
+    ///
     pub fn get_upgradable(&self) -> Result<Vec<Package>> {
         let output = Command::new("apt")
             .args(["list", "--upgradable"])
@@ -376,6 +427,8 @@ impl PackageCache {
             .collect())
     }
 
+    /// Convert a SQLite row into a `Package` struct.
+    ///
     pub(super) fn row_to_package(&self, row: &Row) -> rusqlite::Result<Package> {
         let depends_str: String = row.get("depends")?;
         let depends = serde_json::from_str(&depends_str).unwrap_or_default();

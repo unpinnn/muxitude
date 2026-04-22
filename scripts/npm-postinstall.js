@@ -1,13 +1,27 @@
+/**
+ * npm postinstall bootstrapper for muxitude.
+ *
+ * On supported Termux hosts (android/linux arm64), this downloads the
+ * release `.deb` from GitHub and installs it via `dpkg`.
+ */
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const https = require("node:https");
 const { execSync } = require("node:child_process");
 
+/**
+ * Print installer log line.
+ * @param {string} msg
+ */
 function log(msg) {
   console.log(`[muxitude npm] ${msg}`);
 }
 
+/**
+ * Detect whether current environment looks like Termux.
+ * @returns {boolean}
+ */
 function isTermux() {
   const prefix = process.env.PREFIX || "";
   if (prefix.includes("/data/data/com.termux/files/usr")) return true;
@@ -16,6 +30,9 @@ function isTermux() {
   return false;
 }
 
+/**
+ * Exit successfully on unsupported platforms so npm install itself does not fail.
+ */
 function failUnsupported() {
   log("No prebuilt binaries available for your platform.");
   log(
@@ -25,6 +42,13 @@ function failUnsupported() {
   process.exit(0);
 }
 
+/**
+ * Download a file over HTTPS, following redirects.
+ * @param {string} url
+ * @param {string} destination
+ * @param {number} redirectsLeft
+ * @returns {Promise<void>}
+ */
 function download(url, destination, redirectsLeft = 5) {
   return new Promise((resolve, reject) => {
     const req = https.get(
@@ -65,6 +89,12 @@ function download(url, destination, redirectsLeft = 5) {
   });
 }
 
+/**
+ * Main installer flow:
+ * - validate supported platform
+ * - download release deb
+ * - install with dpkg and repair deps if needed
+ */
 async function main() {
   const supportedPlatform =
     process.platform === "linux" || process.platform === "android";

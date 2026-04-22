@@ -1,17 +1,23 @@
+//! Keyboard and mouse input routing for all UI modes.
 use super::*;
 
 impl App {
-    // Menu navigation and activation.
+    /// Open a popup menu and select its first enabled action row.
+    ///
     pub(super) fn open_menu(&mut self, kind: MenuKind) {
         let entries = Self::menu_entries(kind);
         self.active_menu = Some(kind);
         self.selected_menu_entry = Self::first_action_index(&entries);
     }
 
+    /// Close the currently open popup menu.
+    ///
     pub(super) fn close_menu(&mut self) {
         self.active_menu = None;
     }
 
+    /// Move popup menu selection up or down by one enabled action row.
+    ///
     pub(super) fn navigate_menu_vertical(&mut self, delta: i32) {
         let Some(kind) = self.active_menu else {
             return;
@@ -32,6 +38,8 @@ impl App {
         }
     }
 
+    /// Switch active popup menu horizontally across the top menubar.
+    ///
     pub(super) fn switch_menu_horizontal(&mut self, delta: i32) {
         let Some(current) = self.active_menu else {
             return;
@@ -42,6 +50,10 @@ impl App {
         self.open_menu(menus[next_idx as usize]);
     }
 
+    /// Execute single-character shortcut for the currently open menu.
+    ///
+    /// Returns `true` when a shortcut matched and was executed.
+    ///
     pub(super) fn execute_menu_shortcut_key(&mut self, code: KeyCode) -> bool {
         let Some(kind) = self.active_menu else {
             return false;
@@ -66,7 +78,8 @@ impl App {
         false
     }
 
-    // Global input router. View mode decides active keymap.
+    /// Route keyboard input according to current overlay/view/menu state.
+    ///
     pub(super) fn handle_key(&mut self, code: KeyCode) {
         if self.active_overlay.is_some() {
             self.handle_overlay_key(code);
@@ -148,7 +161,7 @@ impl App {
         }
 
         if self.view_mode == ViewMode::PendingReview {
-            let total_lines = self.build_pending_review_lines().len();
+            let total_lines = self.build_pending_review_lines(self.list_area.width as usize).len();
             let viewport = self.list_area.height as usize;
             let max_scroll = total_lines.saturating_sub(viewport);
             match code {
@@ -198,6 +211,7 @@ impl App {
         match code {
             KeyCode::Char('q') => {
                 if self.options.prompt_on_exit {
+                    self.exit_confirm_yes_selected = false;
                     self.active_overlay = Some(OverlayKind::ExitConfirm);
                 } else {
                     self.should_quit = true;
@@ -205,6 +219,7 @@ impl App {
             }
             KeyCode::Char('r') => self.refresh_data(),
             KeyCode::Char('/') => self.open_search_dialog(),
+            KeyCode::Char('\\') => self.open_search_dialog_with_direction(false),
             KeyCode::Char('n') => self.find_again(true),
             KeyCode::Char('N') => self.find_again(false),
             KeyCode::Char('g') => self.open_pending_review_or_apply(),
@@ -212,13 +227,7 @@ impl App {
                 self.begin_update_list_view();
             }
             KeyCode::Char('U') => {
-                let mut added = 0usize;
-                for name in &self.upgradable_names {
-                    self.pending_remove_names.remove(name);
-                    if self.pending_install_names.insert(name.clone()) {
-                        added += 1;
-                    }
-                }
+                let added = self.mark_all_upgradable();
                 self.rebuild_rows();
                 self.status_message = Some(format!("Marked {} upgradable packages.", added));
             }
@@ -239,16 +248,6 @@ impl App {
             KeyCode::Char('=') => self.hold_selected_package(),
             KeyCode::Char('M') => self.apt_mark_selected(true),
             KeyCode::Char('m') => self.apt_mark_selected(false),
-            KeyCode::Char('F') => {
-                self.status_message = Some("Forbid Version is not implemented yet.".to_string());
-            }
-            KeyCode::Char('i') => {
-                self.status_message =
-                    Some("Cycle Package Information is not implemented yet.".to_string());
-            }
-            KeyCode::Char('C') => {
-                self.status_message = Some("Changelog action is not implemented yet.".to_string());
-            }
             KeyCode::Up | KeyCode::Char('k') => {
                 self.selected_row = self.selected_row.saturating_sub(1);
             }
@@ -268,13 +267,13 @@ impl App {
             KeyCode::Char('a') => self.open_menu(MenuKind::Actions),
             KeyCode::Char('z') => self.open_menu(MenuKind::Undo),
             KeyCode::Char('p') => self.open_menu(MenuKind::Package),
-            KeyCode::Char('o') => self.open_menu(MenuKind::Options),
-            KeyCode::Char('h') => self.open_menu(MenuKind::Help),
+            KeyCode::Char('s') => self.open_menu(MenuKind::Search),
             _ => {}
         }
     }
 
-    // Mouse support for menu clicks, list selection and scrolling.
+    /// Route mouse input for menus, list selection, and scrolling.
+    ///
     pub(super) fn handle_mouse(&mut self, mouse: MouseEvent) {
         if self.active_overlay.is_some() {
             if let MouseEventKind::Down(MouseButton::Left) = mouse.kind {
@@ -297,7 +296,7 @@ impl App {
             return;
         }
         if self.view_mode == ViewMode::PendingReview {
-            let total_lines = self.build_pending_review_lines().len();
+            let total_lines = self.build_pending_review_lines(self.list_area.width as usize).len();
             let viewport = self.list_area.height as usize;
             let max_scroll = total_lines.saturating_sub(viewport);
             match mouse.kind {
@@ -341,6 +340,10 @@ impl App {
                     }
                     if (15..=21).contains(&x) {
                         self.open_menu(MenuKind::Package);
+                        return;
+                    }
+                    if (34..=39).contains(&x) {
+                        self.open_menu(MenuKind::Search);
                         return;
                     }
                     if (42..=48).contains(&x) {
@@ -406,6 +409,8 @@ impl App {
         }
     }
 
+    /// Return whether a terminal coordinate is inside the list viewport.
+    ///
     pub(super) fn mouse_in_list(&self, x: u16, y: u16) -> bool {
         x >= self.list_area.x
             && x < self.list_area.x.saturating_add(self.list_area.width)
@@ -413,12 +418,15 @@ impl App {
             && y < self.list_area.y.saturating_add(self.list_area.height)
     }
 
+    /// Convert mouse `y` coordinate to row index in the backing row vector.
+    ///
     pub(super) fn row_from_mouse(&self, y: u16) -> usize {
         let rel = y.saturating_sub(self.list_area.y) as usize;
         rel + self.list_state.offset()
     }
 
-    // Expand/collapse tree rows on Enter or double-click.
+    /// Toggle expand/collapse for selected tree node when supported.
+    ///
     pub(super) fn toggle_selected_node(&mut self) {
         let Some(row) = self.rows.get(self.selected_row).cloned() else {
             return;

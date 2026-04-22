@@ -1,4 +1,12 @@
 #!/usr/bin/env bash
+# Run the same Rust checks used by CI:
+# - formatting
+# - clippy with warnings-as-errors
+# - release build
+# - tests
+#
+# Usage:
+#   bash scripts/run-rustci.sh
 set -euo pipefail
 
 echo "[1/4] cargo fmt --all -- --check"

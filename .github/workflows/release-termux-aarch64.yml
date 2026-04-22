@@ -1,3 +1,4 @@
+# Build and publish Termux (aarch64) release artifacts on version tags.
 name: Release Termux AArch64
 
 on:

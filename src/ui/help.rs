@@ -1,8 +1,11 @@
+//! Help/about/license views.
 use super::*;
 
 const LICENSE_TEXT: &str = include_str!("../../LICENSE");
 
 impl App {
+    /// Open About page in help-view mode.
+    ///
     pub(super) fn open_about_view(&mut self) {
         let lines = vec![
             format!("muxitude {}", self.app_version),
@@ -19,11 +22,15 @@ impl App {
         self.open_help_page("About", lines);
     }
 
+    /// Open GPL license page in help-view mode.
+    ///
     pub(super) fn open_license_view(&mut self) {
         let lines = LICENSE_TEXT.lines().map(|line| line.to_string()).collect();
         self.open_help_page("License", lines);
     }
 
+    /// Open a generic scrollable help page.
+    ///
     pub(super) fn open_help_page(&mut self, title: &str, lines: Vec<String>) {
         self.view_mode = ViewMode::HelpPage;
         self.help_page_title = title.to_string();

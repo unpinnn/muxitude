@@ -1,3 +1,4 @@
+# Publish crate sources to crates.io for version tags after release build succeeds.
 name: Publish Crates.io
 
 on:

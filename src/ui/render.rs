@@ -1,7 +1,10 @@
+//! Frame rendering: browser tree, overlays, menus, and info pane.
 use super::*;
+use ratatui::layout::Alignment;
 
 impl App {
-    // Top-level renderer: menu bar, main pane, status/detail pane, overlays.
+    /// Render the full frame: menubar, main pane, info pane, and overlays.
+    ///
     pub(super) fn draw(&mut self, frame: &mut Frame) {
         let menubar_hidden = self.options.menubar_autohide
             && self.active_menu.is_none()
@@ -46,7 +49,12 @@ impl App {
                 "Package",
                 menu_item_style(self.active_menu == Some(MenuKind::Package)),
             ),
-            Span::styled("  Resolver  Search  ", bar_style),
+            Span::styled("  Resolver  ", bar_style),
+            Span::styled(
+                "Search",
+                menu_item_style(self.active_menu == Some(MenuKind::Search)),
+            ),
+            Span::styled("  ", bar_style),
             Span::styled(
                 "Options",
                 menu_item_style(self.active_menu == Some(MenuKind::Options)),
@@ -131,7 +139,7 @@ impl App {
                 chunks[2],
             );
         } else if self.view_mode == ViewMode::PendingReview {
-            let lines = self.build_pending_review_lines();
+            let lines = self.build_pending_review_lines(chunks[2].width as usize);
             frame.render_widget(
                 Paragraph::new(lines)
                     .style(normal_style)
@@ -229,14 +237,6 @@ impl App {
             } else {
                 detail_body
             };
-            if self.active_overlay == Some(OverlayKind::SearchDialog)
-                && self.options.minibuf_prompts
-            {
-                body = format!(
-                    "Search for:\n{}\n\nPress Enter to search, Esc to cancel.",
-                    self.search_input
-                );
-            }
             if self.view_mode == ViewMode::UpdateList || self.view_mode == ViewMode::ApplyPending {
                 body = String::new();
                 body.push_str(&self.update_status);
@@ -256,7 +256,8 @@ impl App {
         }
     }
 
-    // Draw transient overlays (search dialog, etc.).
+    /// Draw active modal overlay (search or exit confirmation).
+    ///
     pub(super) fn draw_overlay(&self, frame: &mut Frame) {
         match self.active_overlay {
             Some(OverlayKind::SearchDialog) => self.draw_search_dialog(frame),
@@ -265,79 +266,168 @@ impl App {
         }
     }
 
+    /// Draw the search dialog overlay.
+    ///
     pub(super) fn draw_search_dialog(&self, frame: &mut Frame) {
-        if self.options.minibuf_prompts && self.info_area_visible {
-            return;
-        }
         let area = frame.size();
-        let width = area.width.min(92);
-        let height = 6u16;
+        let width = area.width.saturating_sub(4).min(78).max(44);
+        let height = 6u16.min(area.height.saturating_sub(2)).max(5);
         let x = area.x + area.width.saturating_sub(width) / 2;
         let y = area.y + area.height.saturating_sub(height) / 2;
         let popup = Rect::new(x, y, width, height);
         frame.render_widget(Clear, popup);
-        frame.render_widget(
-            Block::default()
-                .borders(Borders::ALL)
-                .style(Style::default().fg(Color::White).bg(Color::Blue)),
-            popup,
-        );
+        let panel = Block::default()
+            .borders(Borders::ALL)
+            .style(Style::default().fg(Color::Black).bg(Color::Gray));
+        frame.render_widget(panel, popup);
 
-        let prompt = "Search for:";
         let inner = Rect::new(
-            popup.x.saturating_add(2),
+            popup.x.saturating_add(1),
             popup.y.saturating_add(1),
-            popup.width.saturating_sub(4),
+            popup.width.saturating_sub(2),
             popup.height.saturating_sub(2),
         );
-        let lines = vec![
-            Line::from(Span::styled(
-                prompt,
-                Style::default().fg(Color::White).bg(Color::Blue),
-            )),
-            Line::from(Span::styled(
-                self.search_input.clone(),
-                Style::default().fg(Color::Black).bg(Color::Gray),
-            )),
-            Line::from(Span::styled(
-                "[ Enter: Search ]    [ Esc: Cancel ]",
-                Style::default().fg(Color::White).bg(Color::Blue),
-            )),
-        ];
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+                Constraint::Length(1),
+            ])
+            .split(inner);
+
         frame.render_widget(
-            Paragraph::new(lines).style(Style::default().bg(Color::Blue)),
-            inner,
+            Paragraph::new("Search for:")
+                .style(Style::default().fg(Color::Black).bg(Color::Gray)),
+            chunks[0],
+        );
+
+        let mut input = self.search_input.clone();
+        let input_width = chunks[1].width as usize;
+        if input.len() < input_width {
+            input.push_str(&" ".repeat(input_width - input.len()));
+        }
+        let input_style = if self.search_dialog_focus == SearchDialogFocus::Input {
+            Style::default().fg(Color::Black).bg(Color::White)
+        } else {
+            Style::default().fg(Color::DarkGray).bg(Color::White)
+        };
+        frame.render_widget(
+            Paragraph::new(input).style(input_style),
+            chunks[1],
+        );
+
+        frame.render_widget(
+            Paragraph::new("─".repeat(chunks[2].width as usize))
+                .style(Style::default().fg(Color::Black).bg(Color::Gray)),
+            chunks[2],
+        );
+
+        let ok_style = if self.search_dialog_focus == SearchDialogFocus::Ok {
+            Style::default().fg(Color::White).bg(Color::Blue)
+        } else {
+            Style::default().fg(Color::Black).bg(Color::Gray)
+        };
+        let cancel_style = if self.search_dialog_focus == SearchDialogFocus::Cancel {
+            Style::default().fg(Color::White).bg(Color::Blue)
+        } else {
+            Style::default().fg(Color::Black).bg(Color::Gray)
+        };
+        let button_line = Line::from(vec![
+            Span::styled(
+                "  [ ",
+                Style::default().fg(Color::Black).bg(Color::Gray),
+            ),
+            Span::styled("Ok", ok_style),
+            Span::styled(
+                " ]    [ ",
+                Style::default().fg(Color::Black).bg(Color::Gray),
+            ),
+            Span::styled("Cancel", cancel_style),
+            Span::styled(" ]", Style::default().fg(Color::Black).bg(Color::Gray)),
+        ]);
+        frame.render_widget(
+            Paragraph::new(button_line)
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(Color::Black).bg(Color::Gray)),
+            chunks[3],
         );
     }
 
+    /// Draw exit confirmation overlay.
+    ///
     pub(super) fn draw_exit_confirm(&self, frame: &mut Frame) {
         let area = frame.size();
-        let width = 42u16.min(area.width);
-        let height = 5u16.min(area.height);
+        let prompt = "Really quit Muxitude?";
+        let max_width = area.width.saturating_sub(4);
+        let desired_width = (prompt.len() as u16).saturating_add(8);
+        let width = desired_width.clamp(40, 56).min(max_width.max(1));
+        let height = 5u16.min(area.height.saturating_sub(2)).max(4);
         let x = area.x + area.width.saturating_sub(width) / 2;
         let y = area.y + area.height.saturating_sub(height) / 2;
         let popup = Rect::new(x, y, width, height);
         frame.render_widget(Clear, popup);
+        let panel = Block::default()
+            .borders(Borders::ALL)
+            .style(Style::default().fg(Color::Black).bg(Color::Gray));
+        frame.render_widget(panel, popup);
+
+        let inner = Rect::new(
+            popup.x.saturating_add(1),
+            popup.y.saturating_add(1),
+            popup.width.saturating_sub(2),
+            popup.height.saturating_sub(2),
+        );
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
+            .split(inner);
+
         frame.render_widget(
-            Block::default()
-                .borders(Borders::ALL)
-                .style(Style::default().fg(Color::White).bg(Color::Blue)),
-            popup,
+            Paragraph::new(prompt)
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(Color::Black).bg(Color::Gray)),
+            chunks[0],
         );
         frame.render_widget(
-            Paragraph::new("Quit muxitude?\n[ Enter / y ] Yes    [ Esc / n ] No")
-                .style(Style::default().fg(Color::White).bg(Color::Blue)),
-            Rect::new(
-                popup.x.saturating_add(1),
-                popup.y.saturating_add(1),
-                popup.width.saturating_sub(2),
-                popup.height.saturating_sub(2),
+            Paragraph::new("─".repeat(chunks[1].width as usize))
+                .style(Style::default().fg(Color::Black).bg(Color::Gray)),
+            chunks[1],
+        );
+
+        let (yes_style, no_style) = if self.exit_confirm_yes_selected {
+            (
+                Style::default().fg(Color::White).bg(Color::Blue),
+                Style::default().fg(Color::Black).bg(Color::Gray),
+            )
+        } else {
+            (
+                Style::default().fg(Color::Black).bg(Color::Gray),
+                Style::default().fg(Color::White).bg(Color::Blue),
+            )
+        };
+        let buttons = Line::from(vec![
+            Span::styled("[ ", Style::default().fg(Color::Black).bg(Color::Gray)),
+            Span::styled("Yes", yes_style),
+            Span::styled(
+                " ]   [ ",
+                Style::default().fg(Color::Black).bg(Color::Gray),
             ),
+            Span::styled("No", no_style),
+            Span::styled(" ]", Style::default().fg(Color::Black).bg(Color::Gray)),
+        ]);
+        frame.render_widget(
+            Paragraph::new(buttons)
+                .alignment(Alignment::Center)
+                .style(Style::default().fg(Color::Black).bg(Color::Gray)),
+            chunks[2],
         );
     }
 
-    // Build review screen rows for pending install/remove operations.
-    pub(super) fn build_pending_review_lines(&self) -> Vec<Line<'static>> {
+    /// Build pending-review lines grouped by upgrade/install/remove actions.
+    ///
+    pub(super) fn build_pending_review_lines(&self, row_width: usize) -> Vec<Line<'static>> {
         let mut lines: Vec<Line<'static>> = Vec::new();
 
         let package_by_name: HashMap<&str, &Package> = self
@@ -377,10 +467,12 @@ impl App {
                 upgrade_count
             ))));
             for p in upgrades {
-                lines.push(Line::from(Span::styled(
-                    format!("iu  {}", p.name),
-                    Style::default().fg(Color::Black).bg(Color::Cyan),
-                )));
+                lines.push(Self::build_colored_pending_line(
+                    "iu",
+                    &p.name,
+                    Color::Cyan,
+                    row_width,
+                ));
             }
         }
         if !installs.is_empty() {
@@ -389,10 +481,12 @@ impl App {
                 install_count
             ))));
             for p in installs {
-                lines.push(Line::from(Span::styled(
-                    format!("pi  {}", p.name),
-                    Style::default().fg(Color::Black).bg(Color::Green),
-                )));
+                lines.push(Self::build_colored_pending_line(
+                    "pi",
+                    &p.name,
+                    Color::Green,
+                    row_width,
+                ));
             }
         }
         if !removes.is_empty() {
@@ -401,10 +495,12 @@ impl App {
                 remove_count
             ))));
             for p in removes {
-                lines.push(Line::from(Span::styled(
-                    format!("ip  {}", p.name),
-                    Style::default().fg(Color::Black).bg(Color::Magenta),
-                )));
+                lines.push(Self::build_colored_pending_line(
+                    "ip",
+                    &p.name,
+                    Color::Magenta,
+                    row_width,
+                ));
             }
         }
         if upgrade_count == 0 && install_count == 0 && remove_count == 0 {
@@ -414,7 +510,23 @@ impl App {
         lines
     }
 
-    // Draw the currently active top menu popup.
+    /// Build one full-width colored line used by pending-review rendering.
+    ///
+    fn build_colored_pending_line(
+        state: &str,
+        package_name: &str,
+        bg: Color,
+        row_width: usize,
+    ) -> Line<'static> {
+        let mut text = format!("{state}  {package_name}");
+        if row_width > text.len() {
+            text.push_str(&" ".repeat(row_width - text.len()));
+        }
+        Line::from(Span::styled(text, Style::default().fg(Color::Black).bg(bg)))
+    }
+
+    /// Draw the currently active popup menu.
+    ///
     pub(super) fn draw_menu_popup(&self, frame: &mut Frame) {
         let Some(kind) = self.active_menu else {
             return;
@@ -438,24 +550,23 @@ impl App {
         for (idx, entry) in entries.iter().enumerate() {
             if entry.kind == MenuEntryKind::Separator {
                 lines.push(Line::from(Span::styled(
-                    "-".repeat(inner.width as usize),
+                    "\u{2500}".repeat(inner.width as usize),
                     Style::default().fg(Color::White).bg(Color::Blue),
                 )));
                 continue;
             }
             let mut label = entry.label.to_string();
             let right = entry.shortcut;
-            let fill = if right.is_empty() {
-                0
+            if right.is_empty() {
+                if text_width > label.len() {
+                    label.push_str(&" ".repeat(text_width - label.len()));
+                }
             } else {
-                text_width
+                let gap = text_width
                     .saturating_sub(label.len())
                     .saturating_sub(right.len())
-                    .saturating_sub(1)
-            };
-            if fill > 0 {
-                label.push_str(&" ".repeat(fill));
-                label.push(' ');
+                    .max(1);
+                label.push_str(&" ".repeat(gap));
                 label.push_str(right);
             }
             let is_selected = idx == self.selected_menu_entry;

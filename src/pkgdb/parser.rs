@@ -1,6 +1,12 @@
+//! Parsing helpers for package metadata ingestion.
 use super::*;
 
 impl PackageCache {
+    /// Parse available packages from `apt-cache dumpavail`.
+    ///
+    /// Uses section mappings (embedded + optional merge file) to assign
+    /// muxitude section names.
+    ///
     pub(super) fn get_available_packages_improved(
         &self,
         installed: &HashMap<String, String>,
